@@ -63,6 +63,24 @@ android {
     }
 }
 
+// Device profile: -Pdevice=<name> ships device-profiles/<name>.json as assets/device.json, which
+// DeviceProfile reads to decide which features install on this build. Without the property the
+// x9u profile is used, which turns everything on, so a plain build matches upstream.
+val deviceProfileName = (findProperty("device") as String?) ?: "x9u"
+val deviceProfileFile = rootProject.file("device-profiles/$deviceProfileName.json")
+require(deviceProfileFile.isFile) {
+    "Unknown device profile '$deviceProfileName': expected $deviceProfileFile"
+}
+val deviceProfileAssets = layout.buildDirectory.dir("generated/deviceProfile")
+val copyDeviceProfile = tasks.register<Copy>("copyDeviceProfile") {
+    from(deviceProfileFile) { rename { "device.json" } }
+    into(deviceProfileAssets)
+    inputs.file(deviceProfileFile)
+    outputs.dir(deviceProfileAssets)
+}
+android.sourceSets.getByName("main").assets.srcDir(deviceProfileAssets.get().asFile)
+tasks.named("preBuild") { dependsOn(copyDeviceProfile) }
+
 dependencies {
     compileOnly(files("libs/api-82.jar"))
     implementation("org.luckypray:dexkit:2.3.0")

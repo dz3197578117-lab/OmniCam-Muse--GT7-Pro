@@ -15,7 +15,16 @@ bind_library() {
 }
 
 # Hybrid Mount creates the two new backend paths before this phase.
-bind_library libBasicTonePhotoX9.so
-bind_library libBasicTonePhotoX10.so
-bind_library libBasicTonePhoto.so
-bind_library libAlgoInterface.so
+# Replacing a camera HAL library is only safe on the build it was made for: the offsets inside
+# libAlgoInterface and the BasicTone classes differ per model. device.json gates the whole group.
+DEVICE_JSON=$MODDIR/device.json
+flag() {
+    [ -f "$DEVICE_JSON" ] && grep -q "\"$1\"[[:space:]]*:[[:space:]]*true" "$DEVICE_JSON"
+}
+
+if flag mount_hal_libs; then
+    bind_library libBasicTonePhotoX9.so
+    bind_library libBasicTonePhotoX10.so
+    bind_library libBasicTonePhoto.so
+    bind_library libAlgoInterface.so
+fi

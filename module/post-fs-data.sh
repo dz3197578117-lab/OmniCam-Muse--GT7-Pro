@@ -57,6 +57,21 @@ bind_merged_dir() {
 : > "$LOG"
 log "begin"
 
+# Per-device switches (module/device.json, copied from device-profiles/<name>.json at build time).
+# A key that is absent or not true means "do not touch this device": mounting another model's
+# camera configuration is what breaks the camera, so the fallback is always off.
+DEVICE_JSON=$MODDIR/device.json
+DEVICE=unknown
+if [ -f "$DEVICE_JSON" ]; then
+    DEVICE=$(sed -n 's/.*"device"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$DEVICE_JSON" | head -n 1)
+fi
+DEVICE=${DEVICE:-unknown}
+log "device profile $DEVICE"
+
+flag() {
+    [ -f "$DEVICE_JSON" ] && grep -q "\"$1\"[[:space:]]*:[[:space:]]*true" "$DEVICE_JSON"
+}
+
 # Release our configuration and resource binds before rebuilding their sources.
 # Hybrid Mount and post-mount.sh manage the separate /odm/lib64 mount tree.
 for TARGET in $(awk -v root="${MODDIR#/data}/" 'index($4, root) == 1 && index($5, "/odm/etc/") == 1 { print $1, $5 }' /proc/self/mountinfo | sort -rn | cut -d ' ' -f 2); do
@@ -64,50 +79,64 @@ for TARGET in $(awk -v root="${MODDIR#/data}/" 'index($4, root) == 1 && index($5
     umount -l "$TARGET" >> "$LOG" 2>&1 || exit 1
 done
 
-for NAME in camera_unit_config camera_unit_feature_config.protobuf oplus_camera_config oplus_camera_algo_switch_config oplus_camera_aps_config oplus_camera_preview_decision_config.json; do
-    bind_file "$MODDIR/payload/$NAME" "/odm/etc/camera/config/$NAME"
-done
-# Forced shutter sound stream at the system volume curve (see tools/patch_audio_volumes.py).
-bind_file "$MODDIR/payload/audio_policy_volumes.xml" /odm/etc/audio/audio_policy_volumes.xml
-
-bind_merged_dir /odm/etc/camera/meishe_lut "$MODDIR/payload/meishe_lut" "$MODDIR/merged/meishe_lut" /odm/etc/camera/meishe_lut
-
-BT_EXTRA=$MODDIR/merged/basictone_extra
-rm -rf "$BT_EXTRA"
-mkdir -p "$BT_EXTRA/setting_Retro"
-if [ -d "$MODDIR/payload/setting_Retro" ]; then
-    cp -a "$MODDIR/payload/setting_Retro"/. "$BT_EXTRA/setting_Retro"/
+if flag mount_camera_config; then
+    for NAME in camera_unit_config camera_unit_feature_config.protobuf oplus_camera_config oplus_camera_algo_switch_config oplus_camera_aps_config oplus_camera_preview_decision_config.json; do
+        bind_file "$MODDIR/payload/$NAME" "/odm/etc/camera/config/$NAME"
+    done
 fi
-cp -a "$MODDIR/payload/x10_basictone"/. "$BT_EXTRA"/
-bind_merged_dir /odm/etc/camera/basictone "$BT_EXTRA" "$MODDIR/merged/basictone" /odm/etc/camera/basictone
+# Forced shutter sound stream at the system volume curve (see tools/patch_audio_volumes.py).
+if flag mount_audio_policy; then
+    bind_file "$MODDIR/payload/audio_policy_volumes.xml" /odm/etc/audio/audio_policy_volumes.xml
+fi
+
+if flag mount_meishe_lut; then
+    bind_merged_dir /odm/etc/camera/meishe_lut "$MODDIR/payload/meishe_lut" "$MODDIR/merged/meishe_lut" /odm/etc/camera/meishe_lut
+fi
+
+if flag mount_basictone; then
+    BT_EXTRA=$MODDIR/merged/basictone_extra
+    rm -rf "$BT_EXTRA"
+    mkdir -p "$BT_EXTRA/setting_Retro"
+    if [ -d "$MODDIR/payload/setting_Retro" ]; then
+        cp -a "$MODDIR/payload/setting_Retro"/. "$BT_EXTRA/setting_Retro"/
+    fi
+    cp -a "$MODDIR/payload/x10_basictone"/. "$BT_EXTRA"/
+    bind_merged_dir /odm/etc/camera/basictone "$BT_EXTRA" "$MODDIR/merged/basictone" /odm/etc/camera/basictone
+fi
 
 log "polaroid=$(ls -l /odm/etc/camera/meishe_lut/polaroid_sdr.mslut 2>&1)"
 log "host_film=$(ls -l /odm/etc/camera/meishe_lut/fuji-nc.bin 2>&1)"
 log "retro_ini=$(ls -l /odm/etc/camera/basictone/setting_Retro/SimTool_Master.ini 2>&1)"
 log "host_setting=$(ls -d /odm/etc/camera/basictone/setting 2>&1)"
 
-for LENS in main wide tele ultratele; do
-    NAME="com.qti.tuned.lighthouse${LENS}.bin"
-    SOURCE="$MODDIR/payload/isp/$NAME"
-    TARGET="/odm/lib64/camera/$NAME"
-    chown root:root "$SOURCE"
-    chmod 0644 "$SOURCE"
-    chcon u:object_r:vendor_file:s0 "$SOURCE" 2>>"$LOG" || true
-    if mount --bind "$SOURCE" "$TARGET" >>"$LOG" 2>&1; then
-        log "isp bind ok $TARGET"
-    else
-        log "isp bind FAIL $TARGET"
-    fi
-done
-for NAME in gamma_preview_sdr_conf.json gamma_quick_sdr_conf.json gamma_preview_hdr_conf.json; do
-    bind_file "$MODDIR/payload/gamma/$NAME" "/odm/etc/camera/$NAME"
-done
+if flag mount_isp; then
+    for LENS in main wide tele ultratele; do
+        NAME="com.qti.tuned.lighthouse${LENS}.bin"
+        SOURCE="$MODDIR/payload/isp/$NAME"
+        TARGET="/odm/lib64/camera/$NAME"
+        chown root:root "$SOURCE"
+        chmod 0644 "$SOURCE"
+        chcon u:object_r:vendor_file:s0 "$SOURCE" 2>>"$LOG" || true
+        if mount --bind "$SOURCE" "$TARGET" >>"$LOG" 2>&1; then
+            log "isp bind ok $TARGET"
+        else
+            log "isp bind FAIL $TARGET"
+        fi
+    done
+fi
+if flag mount_gamma; then
+    for NAME in gamma_preview_sdr_conf.json gamma_quick_sdr_conf.json gamma_preview_hdr_conf.json; do
+        bind_file "$MODDIR/payload/gamma/$NAME" "/odm/etc/camera/$NAME"
+    done
+fi
 # Pro video ISZ (2x main, 6x tele; O-Log2 too): stock sets the ISO gate of rows 25-40 to 0/0,
 # which DoIzoomStable() can never pass; -1 means "no ISO check", like the normal video rows.
 # Patched from the live file on every boot. Touch $MODDIR/disable_pro_video_isz to skip.
 HWCFG=/odm/etc/camera/CameraHWConfiguration.config
 HWOUT=$MODDIR/merged/CameraHWConfiguration.config
-if [ -f "$MODDIR/disable_pro_video_isz" ]; then
+if ! flag patch_hwconfig; then
+    log "pro video isz not enabled for $DEVICE"
+elif [ -f "$MODDIR/disable_pro_video_isz" ]; then
     log "pro video isz disabled"
 elif [ -f "$HWCFG" ]; then
     mkdir -p "$MODDIR/merged"

@@ -1,6 +1,13 @@
+param([string]$Device = 'x9u')
 $ErrorActionPreference = 'Stop'
 $project = $PSScriptRoot
 $python = if ($env:OMNICAM_PYTHON) { $env:OMNICAM_PYTHON } else { 'python' }
+$profile = Join-Path $project "device-profiles/$Device.json"
+if (-not (Test-Path -LiteralPath $profile)) {
+    throw "Unknown device profile '$Device': expected $profile"
+}
+Copy-Item -LiteralPath $profile -Destination (Join-Path $project 'module/device.json') -Force
+Write-Output "Device profile: $Device"
 $version = ((Get-Content (Join-Path $project 'module/module.prop') | Where-Object { $_ -like 'version=*' }) -replace '^version=(Muse )?', '').Trim()
 $sdkProperties = Join-Path $project 'local.properties'
 if (-not (Test-Path -LiteralPath $sdkProperties)) {
@@ -19,7 +26,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Unable to map the build directory.' }
 try {
     Push-Location "$($drive):\"
     try {
-        & .\gradlew.bat :app:assembleRelease --console=plain
+        & .\gradlew.bat :app:assembleRelease "-Pdevice=$Device" --console=plain
         if ($LASTEXITCODE -ne 0) { throw 'Gradle build failed.' }
     } finally { Pop-Location }
 } finally { subst "$($drive):" /D }

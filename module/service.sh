@@ -8,6 +8,13 @@ OUT=$APP/files/ricoh_gr/lmt
 GR_AVAILABLE='0.6(14),1(23),2(47),3(70),6(139),10(230)'
 GR_MARKED='1.2173913(28),1.7391304(40)'
 
+# Per-device switches (module/device.json). A key that is absent or not true leaves this device
+# untouched: every block below stages or configures something that was verified on PMA110 only.
+DEVICE_JSON=$MODDIR/device.json
+flag() {
+    [ -f "$DEVICE_JSON" ] && grep -q "\"$1\"[[:space:]]*:[[:space:]]*true" "$DEVICE_JSON"
+}
+
 until [ -d "$APP" ]; do
     sleep 1
 done
@@ -31,12 +38,18 @@ set_config() {
     fi
 }
 
-    set_config com.oplus.gr.mode.support 1
+if flag gr_payload || flag tilt_config; then
     set_config com.oplus.camera.mode.data.db.version 102
-set_config com.oplus.available.gr.mode.zoomvalues "$GR_AVAILABLE"
-set_config com.oplus.gr.mode.marked.zoomvalues "$GR_MARKED"
-set_config com.oplus.camera.capture.hdr.cap.mode.value 'common,portrait,professional,night,highPixel,xpan,underWater,telephoto,gr,retroCamera'
-set_config com.oplus.camera.preview.hdr.cap.mode.value 'common,professional,night,highPixel,xpan,underWater,telephoto,gr'
+fi
+if flag gr_payload; then
+    set_config com.oplus.gr.mode.support 1
+    set_config com.oplus.available.gr.mode.zoomvalues "$GR_AVAILABLE"
+    set_config com.oplus.gr.mode.marked.zoomvalues "$GR_MARKED"
+fi
+if flag pop_payload; then
+    set_config com.oplus.camera.capture.hdr.cap.mode.value 'common,portrait,professional,night,highPixel,xpan,underWater,telephoto,gr,retroCamera'
+    set_config com.oplus.camera.preview.hdr.cap.mode.value 'common,professional,night,highPixel,xpan,underWater,telephoto,gr'
+fi
 
 chown "$APP_UID:$APP_UID" "$PREF_FILE"
 chmod 0660 "$PREF_FILE"
@@ -45,6 +58,7 @@ restorecon "$PREF_FILE"
 mkdir -p "$OUT"
 chown "$APP_UID:$APP_UID" "$APP/files"
 chmod 0770 "$APP/files"
+if flag gr_payload; then
 for ORIGINAL in /odm/etc/camera/basictone/lmt/*; do
     NAME=${ORIGINAL##*/}
     case "$NAME" in
@@ -68,10 +82,12 @@ for ORIGINAL in /odm/etc/camera/basictone/lmt/*; do
 done
 chown -R "$APP_UID:$APP_UID" "$APP/files/ricoh_gr"
 restorecon -R "$APP/files/ricoh_gr"
+fi
 
 # Master colour (大师色彩): engine data, scene front stage profiles and look tables (Lumix / film). Baked tables
 # (files/jiege/mastercolor/live) come from the camera; they are dropped when the module changes so they
 # are rebuilt from the new data. The selected look (written by the hook) survives the refresh.
+if flag master_color_payload; then
 MASTER_COLOR=$APP/files/jiege/mastercolor
 MASTER_COLOR_STAMP=$(grep '^versionCode=' "$MODDIR/module.prop")
 if [ "$(cat "$MASTER_COLOR/stamp" 2>/dev/null)" != "$MASTER_COLOR_STAMP" ] || ! cmp -s "$MODDIR/payload/master_color/hncs_engine.bin" "$MASTER_COLOR/hncs_engine.bin" || ! cmp -s "$MODDIR/payload/master_color/scene.bin" "$MASTER_COLOR/scene.bin" || ! diff -rq "$MODDIR/payload/master_color/looks" "$MASTER_COLOR/looks" >/dev/null 2>&1; then
@@ -96,13 +112,17 @@ done
 chown -R "$APP_UID:$APP_UID" "$APP/files/jiege"
 chmod 0771 "$APP/files/jiege" "$MASTER_COLOR" "$MASTER_COLOR/live"
 restorecon -R "$APP/files/jiege"
+fi
 
 # Stage POP before the gallery wait so camera resources are ready at startup.
+if flag pop_payload; then
 ASSET_DIR="$APP/files/pop_port"
 PLD_APP="$APP/files/odm/etc/camera/pld_watermark"
 set_config com.oplus.feature.retro.camera.support 1
 # Flash brightness slider (柔和/反差); the camera drives it through com.oplus.flash.IntensityControl.
 set_config com.oplus.flashlevel.configurable.support 1
+fi
+if flag tilt_config; then
 set_config com.oplus.feature.tilt.shift.photo.support 1
 # Tilt-shift: mode_data.db is built once from the feature flags. If it has no tiltShift row yet, drop it once
 # (the marker keeps this to a single time) so the camera recreates it with the tilt-shift flag on.
@@ -113,9 +133,11 @@ if [ ! -f "$TILT_MARK" ] && [ -f "$TILT_DB" ] && ! grep -aq tiltShift "$TILT_DB"
     rm -f "$TILT_DB" "$TILT_DB-journal" "$TILT_DB-wal" "$TILT_DB-shm"
 fi
 touch "$TILT_MARK"
+fi
 chown "$APP_UID:$APP_UID" "$PREF_FILE"
 chmod 0660 "$PREF_FILE"
 restorecon "$PREF_FILE" 2>/dev/null || true
+if flag pop_payload; then
 mkdir -p "$ASSET_DIR/setting_Retro" "$ASSET_DIR/meishe_lut" "$ASSET_DIR/pld_watermark" "$ASSET_DIR/apk_resources/json" "$ASSET_DIR/apk_resources/img" "$PLD_APP"
 cp -f "$MODDIR/payload/setting_Retro/"* "$ASSET_DIR/setting_Retro/"
 cp -f "$MODDIR/payload/meishe_lut/"* "$ASSET_DIR/meishe_lut/"
@@ -126,9 +148,11 @@ chown -R "$APP_UID:$APP_UID" "$APP/files/pop_port" "$APP/files/odm"
 find "$ASSET_DIR" "$PLD_APP" -type d -exec chmod 0755 {} \;
 find "$ASSET_DIR" "$PLD_APP" -type f -exec chmod 0644 {} \;
 restorecon -R "$ASSET_DIR" "$APP/files/odm" 2>/dev/null || true
+fi
 
 # Normal-mode 25MP unlock (tools/patch_25mp.py): the relaxed config copies; the settings hook adds the
 # "enabled" marker while the switch is on and unlock25mp.cpp redirects reads to these copies.
+if flag unlock25mp_payload; then
 UNLOCK_DIR="$APP/files/jiege/unlock25mp"
 mkdir -p "$UNLOCK_DIR"
 rm -f "$UNLOCK_DIR"/live50*  # staged by 1.3.0-1.3.5 (live 50MP, removed)
@@ -137,9 +161,11 @@ chown -R "$APP_UID:$APP_UID" "$UNLOCK_DIR"
 chmod 0771 "$UNLOCK_DIR"
 find "$UNLOCK_DIR" -type f -exec chmod 0644 {} \;
 restorecon -R "$UNLOCK_DIR" 2>/dev/null || true
+fi
 
 # 哈苏超清 200MP without the big-face gate (tools/patch_200m_face.py): the decision copies; the settings
 # hook adds the "enabled" marker while the switch is on and face200m.cpp redirects the decision read.
+if flag face200m_payload; then
 FACE_DIR="$APP/files/jiege/face200m"
 mkdir -p "$FACE_DIR"
 cp -a "$MODDIR/payload/face200m/." "$FACE_DIR/"
@@ -147,7 +173,9 @@ chown -R "$APP_UID:$APP_UID" "$FACE_DIR"
 find "$FACE_DIR" -type d -exec chmod 0771 {} \;
 find "$FACE_DIR" -type f -exec chmod 0644 {} \;
 restorecon -R "$FACE_DIR" 2>/dev/null || true
+fi
 
+if flag gallery_gr_switch || flag ipu_jar; then
 GALLERY=/data/user/0/com.coloros.gallery3d
 until [ -d "$GALLERY" ]; do
     sleep 1
@@ -159,7 +187,7 @@ while [ ! -f "$GALLERY_PREF" ] && [ "$WAIT" -lt 120 ]; do
     sleep 1
     WAIT=$((WAIT + 1))
 done
-if [ -f "$GALLERY_PREF" ]; then
+if [ -f "$GALLERY_PREF" ] && flag gallery_gr_switch; then
     if grep -q 'name="business_featureSwitch_is_camera_gr_supported"' "$GALLERY_PREF"; then
         sed -i 's/name="business_featureSwitch_is_camera_gr_supported" value="false"/name="business_featureSwitch_is_camera_gr_supported" value="true"/' "$GALLERY_PREF"
     else
@@ -170,6 +198,7 @@ if [ -f "$GALLERY_PREF" ]; then
     restorecon "$GALLERY_PREF"
 fi
 STYLE_OUT="$GALLERY/files/ricoh_gr_styles"
+if flag gallery_gr_switch; then
 mkdir -p "$STYLE_OUT"
 cp "$MODDIR/payload/watermark_master_styles/"*.json "$STYLE_OUT/"
 if [ -d "$MODDIR/payload/watermark_drawables" ]; then
@@ -196,6 +225,12 @@ fi
 chown -R "$GALLERY_UID:$GALLERY_UID" "$STYLE_OUT"
 chmod 0644 "$STYLE_OUT"/*
 restorecon -R "$STYLE_OUT"
+chown -R "$APP_UID:$APP_UID" "$CAM_ML"
+find "$CAM_ML" -type f -exec chmod 0644 {} \;
+find "$CAM_ML" -type d -exec chmod 0755 {} \;
+restorecon -R "$CAM_ML"
+fi
+if flag ipu_jar; then
 # Camera unit SDK with the palette classes (CombineLut, PaletteColorTable) for the gallery's
 # palette editor; the gallery hook loads it in place of the system copy. Dex must be read-only.
 IPU_OUT="$GALLERY/files/jiege_ipu"
@@ -208,7 +243,5 @@ chmod 0444 "$IPU_OUT/com.oplus.camera.unit.sdk.jar"
 restorecon "$IPU_OUT"
 # A root-owned file gets no MLS categories from restorecon; take the directory's.
 chcon "$(ls -dZ "$IPU_OUT" | awk '{print $1}')" "$IPU_OUT/com.oplus.camera.unit.sdk.jar"
-chown -R "$APP_UID:$APP_UID" "$CAM_ML"
-find "$CAM_ML" -type f -exec chmod 0644 {} \;
-find "$CAM_ML" -type d -exec chmod 0755 {} \;
-restorecon -R "$CAM_ML"
+fi
+fi
