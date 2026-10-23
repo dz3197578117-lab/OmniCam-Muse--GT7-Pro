@@ -1,6 +1,6 @@
-id=ricoh_pop_x9u
-name=OmniCam Muse
-version=Muse 4.4.4
+id=omnicam_gt7pro
+name=OmniCam Muse GT7 Pro
+version=Muse 4.4.4-gt7pro
 versionCode=444
 author=local-port
-description=RICOH GR, POP, X10 and master filter features for PMA110, with a settings app.
+description=OmniCam Muse for realme GT7 Pro (RMX5010, ColorOS 17, camera 7.006.180). Only the features verified on this phone are switched on.

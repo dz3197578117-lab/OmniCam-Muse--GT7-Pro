@@ -1,4 +1,4 @@
-param([string]$Device = 'x9u')
+param([string]$Device = 'gt7pro')
 $ErrorActionPreference = 'Stop'
 $project = $PSScriptRoot
 $python = if ($env:OMNICAM_PYTHON) { $env:OMNICAM_PYTHON } else { 'python' }

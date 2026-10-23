@@ -63,9 +63,8 @@ ColorOS 17 之后要分两种情况看：
 
 | 路径 | 作用 |
 |---|---|
-| `device-profiles/x9u.json` | X9U 原始行为：全部为 `true`，与改造前等价 |
-| `device-profiles/gt7pro.json` | GT7 Pro 首版：不挂载任何 `/odm` 资源，只开 A 级钩子 |
-| `module/device.json` | 打包进模块的设备档案，由 `build.ps1 -Device` 从上面复制 |
+| `device-profiles/gt7pro.json` | 唯一的设备档案：不挂载任何 `/odm` 资源，只开 A 级钩子 |
+| `module/device.json` | 打包进模块的设备档案，由 `build.ps1` 从上面复制 |
 | `app/src/main/java/local/jiege/hook/common/DeviceProfile.java` | 从 `assets/device.json` 读取开关；读不到时全部为开，保证老构建行为不变 |
 | `tools/port/dump_device.sh` | 设备侧一键取证脚本（只读） |
 
@@ -75,7 +74,8 @@ ColorOS 17 之后要分两种情况看：
 |---|---|
 | `app/src/main/java/local/jiege/hook/ModuleEntry.java` | 每个 `installCamera/installGallery` 前加 `DeviceProfile.on("key")` 判断；`xpan` 三项合并到同一开关 |
 | `app/build.gradle.kts` | `-Pdevice=<name>` 把档案作为 `assets/device.json` 打进 APK |
-| `build.ps1` | 新增 `-Device`（默认 `x9u`），同步 `module/device.json` 并传给 Gradle |
+| `build.ps1` | 新增 `-Device`（默认 `gt7pro`），同步 `module/device.json` 并传给 Gradle |
+| `module/module.prop` | `id` 改为 `omnicam_gt7pro`，版本 `Muse 4.4.4-gt7pro`，避免与原版互相覆盖 |
 | `module/post-fs-data.sh` | 顶部加 `flag()`，`/odm/etc/camera/config`、`meishe_lut`、`basictone`、ISP bin、gamma、`CameraHWConfiguration.config` 各自受控 |
 | `module/post-mount.sh` | `libAlgoInterface.so` / `libBasicTonePhoto*.so` 的绑定受 `mount_hal_libs` 控制（**这是最危险的一步**，默认对 GT7 Pro 关闭） |
 | `module/service.sh` | GR 配置与 LMT、大师色彩数据、POP 资源、移轴建库、25MP、200MP、相册 GR 开关与 IPU jar 全部按 flag 分段执行 |
@@ -83,10 +83,10 @@ ColorOS 17 之后要分两种情况看：
 构建 GT7 Pro 版本：
 
 ```powershell
-.\build.ps1 -Device gt7pro
+.\build.ps1
 ```
 
-产物仍是 `OmniCam-Muse-<版本>-KSU.zip`。建议同时把 `module/module.prop` 的 `id` 改成 `omnicam_gt7pro`，避免和 X9U 版本互相覆盖。
+默认就是 GT7 Pro 档案，产物为 `OmniCam-Muse-4.4.4-gt7pro-KSU.zip`。仓库只服务这一台机器，不再保留 X9U 档案；需要对比历史行为时去 git 提交 `7cc0458a` 之前看。
 
 ## 4. 需要你提供的取证
 
@@ -149,8 +149,8 @@ adb pull /sdcard/omnicam-dump-RMX5010-*.tar.gz
 ## 8. 速查
 
 ```sh
-# 构建 GT7 Pro 版
-./build.ps1 -Device gt7pro
+# 构建
+./build.ps1
 
 # 看模块挂载与设备档案
 adb shell su -c "cat /data/adb/modules/omnicam_gt7pro/device.json"

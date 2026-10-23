@@ -1,10 +1,23 @@
-# OmniCam Muse
+# OmniCam Muse GT7 Pro
 
-**OPPO Find X9 Ultra（PMA110）的相机增强模块。** 当前版本 Muse 4.4.4，适配相机 7.006.119。
+> **本仓库只服务 realme GT7 Pro（RMX5010，ColorOS 17，相机 7.006.180）。**
+>
+> 上游项目面向 OPPO Find X9 Ultra（PMA110，相机 7.006.119）。本分支做了三件事：
+> 把机型相关的东西收进 `device-profiles/` 一份档案、默认**不挂载任何 `/odm` 资源**、
+> 只打开在这台机器上验证过的钩子。构建 `.\build.ps1` 即得到 GT7 Pro 版；
+> 逐项放开功能的顺序与风险见 [docs/PORTING-GT7PRO.md](docs/PORTING-GT7PRO.md)。
+>
+> 与原版的差异：模块 id 为 `omnicam_gt7pro`，应用包名仍为 `local.jiege.camera`；
+> 哈苏大师色彩 / 大师 LUT / 颗粒 / 柔光依赖 X9U 独有的 `libBasicTonePhotoX9.so`，本机不存在，保持关闭；
+> 200MP 人脸门禁不适用（本机无 200MP 传感器）。
+
+**realme GT7 Pro（RMX5010）的相机增强模块。** 基于原版 Muse 4.4.4（面向 OPPO Find X9 Ultra，相机 7.006.119），本分支适配 GT7 Pro 的 ColorOS 17 与相机 7.006.180。
 
 Muse 深入原厂 HAL、相机框架和成像链路，重构画质、色彩与交互逻辑，并补回被机型策略拆开的模式与调色资产。
 
 Muse 由 KernelSU 模块和 LSPosed 设置应用组成：模块通过绑定挂载覆盖 `/odm` 下的相机配置与资源，钩子和原生库在相机、相册进程内工作。停用模块即可完整还原。
+
+本分支把挂载与钩子都改为按 `device-profiles/gt7pro.json` 门控，**默认一个 `/odm` 文件都不挂**，只有逐个验证通过的功能才会打开；因此刷入后看不到效果是预期状态，不是故障。
 
 ## 功能
 
@@ -93,7 +106,7 @@ Muse 由 KernelSU 模块和 LSPosed 设置应用组成：模块通过绑定挂�
 需要已 root（KernelSU）并安装 LSPosed。
 
 1. 构建得到 `OmniCam-Muse-<版本>-KSU.zip`（见"构建"）。
-2. 在 KernelSU 管理器中刷入模块（ID `ricoh_pop_x9u`）并重启。模块自带设置应用（包名 `local.jiege.camera`），刷入时一并安装。
+2. 在 KernelSU 管理器中刷入模块（ID `omnicam_gt7pro`）并重启。模块自带设置应用（包名 `local.jiege.camera`），刷入时一并安装。
 3. 在 LSPosed 中启用 OmniCam Muse，作用域勾选**系统框架、相机、相册**。
 4. 强制停止相机后重新打开。
 
@@ -108,14 +121,18 @@ $env:OMNICAM_PYTHON = 'python'
 .\build.ps1
 ```
 
-`build.ps1` 依次执行色彩目录检查、离线测试、脚本语法检查与 `assembleRelease`。
+`build.ps1` 依次执行色彩目录检查、离线测试、脚本语法检查与 `assembleRelease`，并把 `device-profiles/gt7pro.json` 同时放进 APK 的 `assets/device.json` 与模块目录，产物为 `OmniCam-Muse-4.4.4-gt7pro-KSU.zip`。`-Device <名字>` 可以换用别的档案，但本仓库只有 `gt7pro`。
 
 - **签名**：根目录放有 `port.keystore`（已忽略），或设置了 `OMNICAM_KEYSTORE` 时，读取 `OMNICAM_STORE_PASSWORD`、`OMNICAM_KEY_ALIAS`、`OMNICAM_KEY_PASSWORD` 签名，并打包出 `OmniCam-Muse-<版本>-KSU.zip`；否则只产出未签名 APK。
 - 证书与密码不入库。不同证书签名的 APK 不能直接覆盖安装。
 
-## 适配其他机型
+## 机型档案
 
-欢迎参考本项目为其他机型适配。但很多功能改动的是底层配置：`/odm` 下的相机配置、调色与 LUT 资源、HAL 决策节点和原生库，它们与机型和相机版本绑定，不能照搬。适配前请先阅读 `docs/MODULE.md` 中各功能的原理与涉及文件，再对照目标机型自己的配置逐项核对。
+`device-profiles/gt7pro.json` 是本分支唯一的功能清单：每个键控制一个钩子或一段挂载，Java 侧由 `DeviceProfile` 读取，脚本侧由 `post-fs-data.sh`、`post-mount.sh`、`service.sh` 里的 `flag()` 读取同一份 `module/device.json`。
+
+- 键缺失在脚本侧等于**关**，Java 侧在档案缺失时等于**全关**——宁可功能不生效，也不拿别机的配置去喂 HAL；
+- 换机型或新增功能，只需要动这一份文件与对应的一段脚本，不必再改 `ModuleEntry` 的结构；
+- 逐个放开功能的顺序、每步的验证点与回滚方式见 `docs/PORTING-GT7PRO.md`。
 
 ## 目录
 
@@ -125,7 +142,9 @@ $env:OMNICAM_PYTHON = 'python'
 | `module/` | KSU 模块：脚本、`payload/` 配置与资源、`system/odm/lib64/` 库 |
 | `tools/` | 资源生成与离线测试：`mastercolor/`（大师色彩）、`softlight/`（柔光权重）、`symbols/`（混淆符号特征）、`offline_tests/` |
 | `tools/refs.py` | 仓库外参考资料的位置（可用 `MUSE_REFS` 修改根目录） |
-| `docs/` | `MODULE.md`：各功能的原理与涉及文件；`DEV_NOTES.md`：设备操作与排查 |
+| `device-profiles/` | 机型档案：`gt7pro.json` 是本分支唯一的一份，控制钩子与挂载 |
+| `docs/` | `MODULE.md`：各功能的原理与涉及文件；`DEV_NOTES.md`：设备操作与排查；`PORTING-GT7PRO.md`：本分支的可行性分级、阶段计划与风险 |
+| `tools/port/` | `dump_device.sh`：在目标机上收集 `/odm` 配置、相机版本与 HAL 库指纹 |
 
 ## 未验证
 
